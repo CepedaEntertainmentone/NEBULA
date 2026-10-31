@@ -20,7 +20,9 @@ juce_add_plugin(Nebula
 
 target_sources(Nebula PRIVATE
     Source/PluginProcessor.cpp
-    Source/PluginProcessor.h)
+    Source/PluginProcessor.h
+    Source/PluginEditor.cpp
+    Source/PluginEditor.h)
 
 target_compile_definitions(Nebula PUBLIC
     JUCE_WEB_BROWSER=0
