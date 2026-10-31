@@ -1,440 +1,489 @@
+#include "PluginProcessor.h"
 #include "PluginEditor.h"
 #include <cmath>
 
-// =====================================================================
-//  LOOK AND FEEL
-// =====================================================================
-NebulaLookAndFeel::NebulaLookAndFeel()
+namespace
 {
-    setColour (juce::Slider::textBoxTextColourId, juce::Colour (0xffcfd8ff));
-    setColour (juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
-    setColour (juce::Slider::textBoxBackgroundColourId, juce::Colours::transparentBlack);
-    setColour (juce::Label::textColourId, juce::Colour (0xffa9b4e8));
+    // ---------- PRESETS ----------
+    struct Preset
+    {
+        const char* name;
+        float stars[16];
+        float pdepth, pcenter;
+        int   scale;
+        float glide;
+        float vol, filt, res;
+        float smix;
+        int   sdiv;
+        float sthresh;
+        float smooth;
+        int   cycle;
+        float mix;
+    };
 
-    setColour (juce::ComboBox::backgroundColourId, juce::Colour (0xcc14113a));
-    setColour (juce::ComboBox::textColourId, juce::Colour (0xffe8ecff));
-    setColour (juce::ComboBox::outlineColourId, juce::Colour (0xff5b4fd0));
-    setColour (juce::ComboBox::arrowColourId, juce::Colour (0xff9fd8ff));
+    const Preset kPresets[] =
+    {
+        { "Agujero negro",
+          { 1.00f, 0.93f, 0.87f, 0.80f, 0.73f, 0.67f, 0.60f, 0.53f, 0.47f, 0.40f, 0.33f, 0.27f, 0.20f, 0.13f, 0.07f, 0.00f },
+          12.0f, 1.0f, 0, 0.0f,   0.9f, 0.7f, 0.25f,   0.0f, 2, 0.7f,   1.0f, 3, 1.0f },
 
-    setColour (juce::PopupMenu::backgroundColourId, juce::Colour (0xff15123a));
-    setColour (juce::PopupMenu::textColourId, juce::Colour (0xffe8ecff));
-    setColour (juce::PopupMenu::highlightedBackgroundColourId, juce::Colour (0xff5b4fd0));
-    setColour (juce::PopupMenu::highlightedTextColourId, juce::Colours::white);
+        { "Supernova",
+          { 0.00f, 0.10f, 0.20f, 0.30f, 0.40f, 0.50f, 0.60f, 0.70f, 0.75f, 0.80f, 0.85f, 0.90f, 0.95f, 1.00f, 1.00f, 1.00f },
+          12.0f, 0.0f, 0, 0.0f,   0.0f, 0.0f, 0.20f,   1.0f, 2, 0.8f,   0.8f, 2, 1.0f },
 
-    setColour (juce::TextButton::buttonColourId, juce::Colour (0xff6b3fd6));
-    setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xffd63fa0));
-    setColour (juce::TextButton::textColourOffId, juce::Colours::white);
-    setColour (juce::TextButton::textColourOnId, juce::Colours::white);
+        { "Eclipse",
+          { 1.00f, 0.00f, 1.00f, 1.00f, 0.00f, 1.00f, 0.00f, 1.00f, 1.00f, 0.00f, 1.00f, 1.00f, 0.00f, 1.00f, 0.00f, 0.50f },
+          0.0f, 1.0f, 0, 0.0f,   1.0f, 0.0f, 0.20f,   0.0f, 2, 0.7f,   0.1f, 2, 1.0f },
+
+        { "Lluvia de meteoros",
+          { 0.90f, 0.20f, 0.70f, 0.10f, 0.95f, 0.30f, 0.60f, 0.15f, 0.85f, 0.40f, 0.75f, 0.05f, 0.90f, 0.25f, 0.65f, 0.35f },
+          24.0f, 0.5f, 4, 0.0f,   0.0f, 0.5f, 0.40f,   0.8f, 2, 0.85f,   0.0f, 2, 1.0f },
+
+        { "Orbita lunar",
+          { 0.50f, 0.69f, 0.85f, 0.96f, 1.00f, 0.96f, 0.85f, 0.69f, 0.50f, 0.31f, 0.15f, 0.04f, 0.00f, 0.04f, 0.15f, 0.31f },
+          3.0f, 0.5f, 0, 0.0f,   0.0f, 0.3f, 0.20f,   0.0f, 2, 0.7f,   1.0f, 3, 1.0f },
+
+        { "Arpegio estelar",
+          { 0.50f, 0.67f, 0.83f, 1.00f, 0.83f, 0.67f, 0.50f, 0.33f, 0.50f, 0.67f, 0.83f, 1.00f, 0.83f, 0.50f, 0.33f, 0.00f },
+          24.0f, 0.5f, 4, 10.0f,   0.0f, 0.0f, 0.20f,   0.0f, 2, 0.7f,   0.0f, 2, 1.0f },
+
+        { "Cinta rota",
+          { 1.00f, 1.00f, 1.00f, 1.00f, 1.00f, 1.00f, 1.00f, 1.00f, 0.90f, 0.70f, 0.50f, 0.30f, 0.15f, 0.05f, 0.00f, 0.00f },
+          12.0f, 1.0f, 0, 0.0f,   1.0f, 0.0f, 0.20f,   0.0f, 2, 0.7f,   1.0f, 3, 1.0f }
+    };
+    constexpr int kNumPresets = (int) (sizeof (kPresets) / sizeof (kPresets[0]));
+
+    juce::StringArray presetNames()
+    {
+        juce::StringArray a;
+        a.add ("Manual");
+        for (const auto& p : kPresets)
+            a.add (p.name);
+        return a;
+    }
+
+    // ---------- UTILIDADES ----------
+    float curveAt (float u, const float* stars, float smoothAmt)
+    {
+        const float x = u * 16.0f;
+        int i = (int) x;
+        if (i > 15) i = 15;
+        if (i < 0) i = 0;
+        const float f = x - (float) i;
+        const int j = (i + 1) & 15;
+        const float a = stars[i];
+        const float b = stars[j];
+        const float sm = f * f * (3.0f - 2.0f * f);
+        const float interp = a + (b - a) * sm;
+        return a + (interp - a) * smoothAmt;
+    }
+
+    float quantizeSemis (float s, int scale)
+    {
+        static const int chromatic[] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 };
+        static const int major[]     = { 0, 2, 4, 5, 7, 9, 11 };
+        static const int minorS[]    = { 0, 2, 3, 5, 7, 8, 10 };
+        static const int pentMinor[] = { 0, 3, 5, 7, 10 };
+        static const int wholeTone[] = { 0, 2, 4, 6, 8, 10 };
+
+        const int* notes = nullptr;
+        int count = 0;
+        switch (scale)
+        {
+            case 1: notes = chromatic; count = 12; break;
+            case 2: notes = major;     count = 7;  break;
+            case 3: notes = minorS;    count = 7;  break;
+            case 4: notes = pentMinor; count = 5;  break;
+            case 5: notes = wholeTone; count = 6;  break;
+            default: return s;
+        }
+
+        const int oct = (int) std::floor (s / 12.0f);
+        float best = s;
+        float bestDist = 1.0e9f;
+        for (int o = oct - 1; o <= oct + 1; ++o)
+            for (int k = 0; k < count; ++k)
+            {
+                const float cand = (float) (notes[k] + 12 * o);
+                const float d = std::abs (cand - s);
+                if (d < bestDist) { bestDist = d; best = cand; }
+            }
+        return best;
+    }
 }
 
-void NebulaLookAndFeel::drawRotarySlider (juce::Graphics& g, int x, int y, int width, int height,
-                                          float pos, float startAngle, float endAngle, juce::Slider&)
-{
-    const auto bounds = juce::Rectangle<float> ((float) x, (float) y, (float) width, (float) height).reduced (8.0f);
-    const float radius = juce::jmin (bounds.getWidth(), bounds.getHeight()) / 2.0f;
-    const auto centre = bounds.getCentre();
-    const float angle = startAngle + pos * (endAngle - startAngle);
-
-    // resplandor
-    g.setColour (juce::Colour (0xff7b5cff).withAlpha (0.14f));
-    g.fillEllipse (centre.x - radius - 5.0f, centre.y - radius - 5.0f, radius * 2.0f + 10.0f, radius * 2.0f + 10.0f);
-
-    // cuerpo
-    juce::ColourGradient body (juce::Colour (0xff2e2a6e), centre.x, centre.y - radius,
-                               juce::Colour (0xff0c0a22), centre.x, centre.y + radius, false);
-    g.setGradientFill (body);
-    g.fillEllipse (centre.x - radius, centre.y - radius, radius * 2.0f, radius * 2.0f);
-
-    // arco de fondo y arco de valor
-    const float arcR = radius - 3.0f;
-    juce::Path track;
-    track.addCentredArc (centre.x, centre.y, arcR, arcR, 0.0f, startAngle, endAngle, true);
-    g.setColour (juce::Colour (0xff3a3680));
-    g.strokePath (track, juce::PathStrokeType (3.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-
-    juce::Path val;
-    val.addCentredArc (centre.x, centre.y, arcR, arcR, 0.0f, startAngle, angle, true);
-    g.setColour (juce::Colour (0xff6ef0ff));
-    g.strokePath (val, juce::PathStrokeType (3.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-
-    // punto indicador
-    const float pr = arcR - 9.0f;
-    const float tx = centre.x + pr * std::sin (angle);
-    const float ty = centre.y - pr * std::cos (angle);
-    g.setColour (juce::Colours::white);
-    g.fillEllipse (tx - 2.5f, ty - 2.5f, 5.0f, 5.0f);
-}
-
-// =====================================================================
-//  CIELO / CONSTELACION
-// =====================================================================
-ConstellationView::ConstellationView (NebulaProcessor& p) : proc (p)
+// ---------- PROCESADOR ----------
+NebulaProcessor::NebulaProcessor()
+    : AudioProcessor (BusesProperties()
+                          .withInput  ("Input",  juce::AudioChannelSet::stereo(), true)
+                          .withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
+      apvts (*this, nullptr, "PARAMS", createLayout())
 {
     for (int k = 0; k < 16; ++k)
+        starParams[(size_t) k] = apvts.getRawParameterValue (juce::String ("s") + juce::String (k + 1));
+
+    apvts.addParameterListener ("preset", this);
+}
+
+NebulaProcessor::~NebulaProcessor()
+{
+    apvts.removeParameterListener ("preset", this);
+    cancelPendingUpdate();
+}
+
+juce::AudioProcessorValueTreeState::ParameterLayout NebulaProcessor::createLayout()
+{
+    juce::AudioProcessorValueTreeState::ParameterLayout layout;
+    using F = juce::AudioParameterFloat;
+    using C = juce::AudioParameterChoice;
+    using R = juce::NormalisableRange<float>;
+
+    layout.add (std::make_unique<C> (juce::ParameterID { "preset", 1 }, "Preset", presetNames(), 0));
+    layout.add (std::make_unique<C> (juce::ParameterID { "cycle", 1 }, "Ciclo",
+                                     juce::StringArray { "1 pulso", "2 pulsos", "1 compas", "2 compases" }, 2));
+    layout.add (std::make_unique<F> (juce::ParameterID { "smooth", 1 }, "Suavidad (0=escalones)", R (0.0f, 1.0f, 0.001f), 1.0f));
+
+    for (int k = 0; k < 16; ++k)
+        layout.add (std::make_unique<F> (juce::ParameterID { juce::String ("s") + juce::String (k + 1), 1 },
+                                         "Estrella " + juce::String (k + 1), R (0.0f, 1.0f, 0.001f), 1.0f));
+
+    layout.add (std::make_unique<F> (juce::ParameterID { "pdepth", 1 }, "Pitch profundidad (st)", R (-24.0f, 24.0f, 0.01f), 0.0f));
+    layout.add (std::make_unique<F> (juce::ParameterID { "pcenter", 1 }, "Pitch centro", R (0.0f, 1.0f, 0.001f), 1.0f));
+    layout.add (std::make_unique<C> (juce::ParameterID { "scale", 1 }, "Pitch escala",
+                                     juce::StringArray { "Libre", "Cromatica", "Mayor", "Menor", "Pentatonica menor", "Tonos enteros" }, 0));
+    layout.add (std::make_unique<F> (juce::ParameterID { "glide", 1 }, "Pitch deslizamiento (ms)", R (0.0f, 500.0f, 0.1f), 0.0f));
+
+    layout.add (std::make_unique<F> (juce::ParameterID { "vol", 1 }, "Volumen cantidad", R (0.0f, 1.0f, 0.001f), 0.0f));
+    layout.add (std::make_unique<F> (juce::ParameterID { "filt", 1 }, "Filtro cantidad", R (0.0f, 1.0f, 0.001f), 0.0f));
+    layout.add (std::make_unique<F> (juce::ParameterID { "res", 1 }, "Filtro resonancia", R (0.0f, 1.0f, 0.001f), 0.2f));
+
+    layout.add (std::make_unique<F> (juce::ParameterID { "smix", 1 }, "Stutter cantidad", R (0.0f, 1.0f, 0.001f), 0.0f));
+    layout.add (std::make_unique<C> (juce::ParameterID { "sdiv", 1 }, "Stutter division",
+                                     juce::StringArray { "1/4", "1/8", "1/16", "1/32" }, 2));
+    layout.add (std::make_unique<F> (juce::ParameterID { "sthresh", 1 }, "Stutter umbral", R (0.0f, 1.0f, 0.001f), 0.7f));
+
+    layout.add (std::make_unique<F> (juce::ParameterID { "mix", 1 }, "Mezcla", R (0.0f, 1.0f, 0.001f), 1.0f));
+    return layout;
+}
+
+void NebulaProcessor::parameterChanged (const juce::String& parameterID, float newValue)
+{
+    if (parameterID == "preset")
     {
-        const juce::String id = juce::String ("s") + juce::String (k + 1);
-        starVals[(size_t) k] = proc.getAPVTS().getRawParameterValue (id);
-        starParams[(size_t) k] = proc.getAPVTS().getParameter (id);
+        pendingPreset = (int) newValue;
+        triggerAsyncUpdate();
     }
 }
 
-float ConstellationView::getStar (int index) const
+void NebulaProcessor::handleAsyncUpdate()
 {
-    return starVals[(size_t) index]->load();
-}
-
-float ConstellationView::xAt (float u) const
-{
-    return pad + u * ((float) getWidth() - 2.0f * pad);
-}
-
-float ConstellationView::yAt (float v) const
-{
-    return pad + (1.0f - v) * ((float) getHeight() - 2.0f * pad);
-}
-
-void ConstellationView::setStar (int index, float value)
-{
-    auto* prm = starParams[(size_t) index];
-    if (prm == nullptr)
+    const int idx = pendingPreset.load();
+    if (idx == lastAppliedPreset)
         return;
-
-    if (! touched[(size_t) index])
-    {
-        prm->beginChangeGesture();
-        touched[(size_t) index] = true;
-    }
-    prm->setValueNotifyingHost (juce::jlimit (0.0f, 1.0f, value));
+    lastAppliedPreset = idx;
+    if (idx > 0 && idx <= kNumPresets)
+        applyPreset (idx - 1);
 }
 
-void ConstellationView::setFromMouse (const juce::MouseEvent& e)
+void NebulaProcessor::applyPreset (int index)
 {
-    const float usable = (float) getWidth() - 2.0f * pad;
-    const float u = (e.position.x - pad) / usable;
-    const int idx = juce::jlimit (0, 15, juce::roundToInt (u * 16.0f));
-    const float v = juce::jlimit (0.0f, 1.0f, 1.0f - (e.position.y - pad) / ((float) getHeight() - 2.0f * pad));
-
-    // si el mouse salta varias columnas, se rellenan las del medio
-    if (lastIdx >= 0 && std::abs (idx - lastIdx) > 1)
-    {
-        const int step = idx > lastIdx ? 1 : -1;
-        for (int k = lastIdx + step; k != idx; k += step)
-        {
-            const float t = (float) (k - lastIdx) / (float) (idx - lastIdx);
-            setStar (k, lastVal + (v - lastVal) * t);
-        }
-    }
-    setStar (idx, v);
-    lastIdx = idx;
-    lastVal = v;
-}
-
-void ConstellationView::mouseDown (const juce::MouseEvent& e)
-{
-    lastIdx = -1;
-    setFromMouse (e);
-}
-
-void ConstellationView::mouseDrag (const juce::MouseEvent& e)
-{
-    setFromMouse (e);
-}
-
-void ConstellationView::mouseUp (const juce::MouseEvent&)
-{
-    for (size_t k = 0; k < 16; ++k)
-        if (touched[k])
-        {
-            starParams[k]->endChangeGesture();
-            touched[k] = false;
-        }
-    lastIdx = -1;
-}
-
-void ConstellationView::paint (juce::Graphics& g)
-{
-    const auto b = getLocalBounds().toFloat();
-    const float w = (float) getWidth();
-    const float h = (float) getHeight();
-
-    // panel
-    g.setColour (juce::Colour (0x66070520));
-    g.fillRoundedRectangle (b, 14.0f);
-    g.setColour (juce::Colour (0x667b5cff));
-    g.drawRoundedRectangle (b.reduced (0.5f), 14.0f, 1.2f);
-
-    // lineas guia
-    for (int k = 1; k < 4; ++k)
-    {
-        g.setColour (juce::Colour (0x14ffffff));
-        g.drawHorizontalLine ((int) yAt ((float) k * 0.25f), pad, w - pad);
-    }
-    for (int k = 0; k <= 16; ++k)
-    {
-        g.setColour (juce::Colour (k % 4 == 0 ? 0x22ffffff : 0x0cffffff));
-        g.drawVerticalLine ((int) xAt ((float) k / 16.0f), pad * 0.5f, h - pad * 0.5f);
-    }
-
-    // posicion de las estrellas (la 17 es la primera repetida al final del ciclo)
-    juce::Point<float> pts[17];
-    float vals[17];
-    for (int i = 0; i < 16; ++i)
-    {
-        vals[i] = getStar (i);
-        pts[i] = { xAt ((float) i / 16.0f), yAt (vals[i]) };
-    }
-    vals[16] = vals[0];
-    pts[16] = { xAt (1.0f), yAt (vals[0]) };
-
-    // linea de la constelacion
-    const bool smooth = proc.getAPVTS().getRawParameterValue ("smooth")->load() > 0.3f;
-    juce::Path path;
-    path.startNewSubPath (pts[0]);
-    if (smooth)
-    {
-        for (int i = 0; i < 16; ++i)
-        {
-            const auto mid = (pts[i] + pts[i + 1]) * 0.5f;
-            path.quadraticTo (pts[i], mid);
-        }
-        path.lineTo (pts[16]);
-    }
-    else
-    {
-        for (int i = 0; i < 16; ++i)
-        {
-            path.lineTo (pts[i + 1].x, pts[i].y);
-            path.lineTo (pts[i + 1]);
-        }
-    }
-    g.setColour (juce::Colour (0xff7b5cff).withAlpha (0.25f));
-    g.strokePath (path, juce::PathStrokeType (7.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-    g.setColour (juce::Colour (0xffb8a8ff).withAlpha (0.85f));
-    g.strokePath (path, juce::PathStrokeType (1.8f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-
-    // nivel de audio para que las estrellas "latan"
-    levelSm += (proc.uiLevel.load() - levelSm) * 0.4f;
-
-    // estrellas
-    for (int i = 0; i < 17; ++i)
-    {
-        const bool ghost = (i == 16);
-        const float v = vals[i];
-        const auto col = juce::Colour (0xffb04dff).interpolatedWith (juce::Colour (0xff5ef2ff), v);
-        const float coreR = 3.5f + 2.5f * v + 3.0f * levelSm;
-        const float glowR = coreR * 4.2f;
-        const float a = ghost ? 0.35f : 1.0f;
-        const auto p = pts[i];
-
-        juce::ColourGradient glow (col.withAlpha (0.6f * a), p.x, p.y, col.withAlpha (0.0f), p.x + glowR, p.y, true);
-        g.setGradientFill (glow);
-        g.fillEllipse (p.x - glowR, p.y - glowR, glowR * 2.0f, glowR * 2.0f);
-
-        g.setColour (juce::Colours::white.withAlpha (0.45f * a));
-        g.drawLine (p.x - glowR * 0.75f, p.y, p.x + glowR * 0.75f, p.y, 1.0f);
-        g.drawLine (p.x, p.y - glowR * 0.75f, p.x, p.y + glowR * 0.75f, 1.0f);
-
-        g.setColour (juce::Colours::white.withAlpha (a));
-        g.fillEllipse (p.x - coreR, p.y - coreR, coreR * 2.0f, coreR * 2.0f);
-    }
-
-    // cometa: posicion actual dentro del ciclo
-    const float px = xAt (proc.uiPhase.load());
-    juce::ColourGradient trail (juce::Colour (0x00aef0ff), px - 70.0f, 0.0f, juce::Colour (0x30aef0ff), px, 0.0f, false);
-    g.setGradientFill (trail);
-    g.fillRect (px - 70.0f, 6.0f, 70.0f, h - 12.0f);
-    g.setColour (juce::Colour (0xaaaef0ff));
-    g.drawLine (px, 6.0f, px, h - 6.0f, 1.5f);
-
-    g.setColour (juce::Colour (0x88a9b4e8));
-    g.setFont (juce::Font (juce::FontOptions (11.0f)));
-    g.drawText ("ARRASTRA PARA DIBUJAR TU CONSTELACION", getLocalBounds().reduced (16, 8), juce::Justification::bottomLeft);
-}
-
-// =====================================================================
-//  EDITOR
-// =====================================================================
-NebulaEditor::NebulaEditor (NebulaProcessor& p)
-    : juce::AudioProcessorEditor (&p), proc (p), sky (p)
-{
-    setLookAndFeel (&lnf);
-    auto& apvts = proc.getAPVTS();
-
-    addAndMakeVisible (sky);
-
-    // --- menus desplegables ---
-    auto setupCombo = [this, &apvts] (juce::ComboBox& box, const char* id)
-    {
-        if (auto* prm = dynamic_cast<juce::AudioParameterChoice*> (apvts.getParameter (id)))
-            box.addItemList (prm->choices, 1);
-        addAndMakeVisible (box);
-    };
-    setupCombo (presetBox, "preset");
-    setupCombo (scaleBox, "scale");
-    setupCombo (divBox, "sdiv");
-    setupCombo (cycleBox, "cycle");
-
-    using CA = juce::AudioProcessorValueTreeState::ComboBoxAttachment;
-    presetAtt = std::make_unique<CA> (apvts, "preset", presetBox);
-    scaleAtt  = std::make_unique<CA> (apvts, "scale", scaleBox);
-    divAtt    = std::make_unique<CA> (apvts, "sdiv", divBox);
-    cycleAtt  = std::make_unique<CA> (apvts, "cycle", cycleBox);
-
-    // --- perillas ---
-    static const char* ids[10]   = { "pdepth", "pcenter", "glide", "vol", "filt", "res", "smix", "sthresh", "smooth", "mix" };
-    static const char* names[10] = { "PITCH", "CENTRO", "GLIDE", "VOLUMEN", "FILTRO", "RESON.", "STUTTER", "UMBRAL", "SUAVIDAD", "MEZCLA" };
-
-    using SA = juce::AudioProcessorValueTreeState::SliderAttachment;
-    for (size_t k = 0; k < 10; ++k)
-    {
-        auto& kn = knobs[k];
-        kn.slider.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
-        kn.slider.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 70, 16);
-        addAndMakeVisible (kn.slider);
-
-        kn.label.setText (names[k], juce::dontSendNotification);
-        kn.label.setJustificationType (juce::Justification::centred);
-        kn.label.setFont (juce::Font (juce::FontOptions (11.0f, juce::Font::bold)));
-        kn.label.attachToComponent (&kn.slider, false);
-
-        kn.att = std::make_unique<SA> (apvts, ids[k], kn.slider);
-    }
-
-    bigBangButton.onClick = [this] { bigBang(); };
-    addAndMakeVisible (bigBangButton);
-
-    // --- estrellas del fondo ---
-    juce::Random rng (12345);
-    for (auto& s : bgStars)
-    {
-        s.x = rng.nextFloat();
-        s.y = rng.nextFloat();
-        s.size = 0.8f + rng.nextFloat() * (rng.nextFloat() < 0.1f ? 2.6f : 1.2f);
-        s.phase = rng.nextFloat() * 6.28f;
-        s.speed = 0.5f + rng.nextFloat() * 2.5f;
-    }
-
-    setResizable (false, false);
-    setSize (920, 540);
-    startTimerHz (30);
-}
-
-NebulaEditor::~NebulaEditor()
-{
-    setLookAndFeel (nullptr);
-}
-
-void NebulaEditor::bigBang()
-{
-    auto& apvts = proc.getAPVTS();
-    auto setP = [&apvts] (const juce::String& id, float plain)
+    const Preset& p = kPresets[index];
+    auto setF = [this] (const juce::String& id, float v)
     {
         if (auto* prm = apvts.getParameter (id))
-        {
-            prm->beginChangeGesture();
-            prm->setValueNotifyingHost (prm->convertTo0to1 (plain));
-            prm->endChangeGesture();
-        }
+            prm->setValueNotifyingHost (prm->convertTo0to1 (v));
     };
 
-    juce::Random rng;
-    float v = 0.2f + 0.8f * rng.nextFloat();
     for (int k = 0; k < 16; ++k)
-    {
-        if (rng.nextFloat() < 0.3f)
-            v = rng.nextFloat();
-        else
-            v = juce::jlimit (0.0f, 1.0f, v + (rng.nextFloat() - 0.5f) * 0.6f);
-        setP (juce::String ("s") + juce::String (k + 1), v);
-    }
+        setF (juce::String ("s") + juce::String (k + 1), p.stars[k]);
 
-    setP ("preset", 0.0f);
-    setP ("pdepth", 8.0f + 16.0f * rng.nextFloat());
-    setP ("pcenter", 0.5f);
-    setP ("scale", (float) (1 + rng.nextInt (5)));
-    setP ("glide", rng.nextFloat() < 0.5f ? 0.0f : 40.0f * rng.nextFloat());
-    setP ("smooth", rng.nextFloat() < 0.5f ? 0.0f : 1.0f);
+    setF ("pdepth", p.pdepth);
+    setF ("pcenter", p.pcenter);
+    setF ("scale", (float) p.scale);
+    setF ("glide", p.glide);
+    setF ("vol", p.vol);
+    setF ("filt", p.filt);
+    setF ("res", p.res);
+    setF ("smix", p.smix);
+    setF ("sdiv", (float) p.sdiv);
+    setF ("sthresh", p.sthresh);
+    setF ("smooth", p.smooth);
+    setF ("cycle", (float) p.cycle);
+    setF ("mix", p.mix);
 }
 
-void NebulaEditor::paint (juce::Graphics& g)
+void NebulaProcessor::prepareToPlay (double sampleRate, int)
 {
-    const float w = (float) getWidth();
-    const float h = (float) getHeight();
+    sr = sampleRate;
+    windowSamples = (float) std::floor (0.08 * sr);
+    baseDelay = windowSamples;
 
-    if (bgImage.isValid())
-        g.drawImageAt (bgImage, 0, 0);
+    preSize = (int) (sr * 2.0) + 8;
+    pSize = (int) (windowSamples * 5.5f) + 8;
 
-    // estrellas titilando
-    const double t = juce::Time::getMillisecondCounterHiRes() * 0.001;
-    for (const auto& s : bgStars)
-    {
-        const float a = 0.25f + 0.75f * (0.5f + 0.5f * (float) std::sin (t * (double) s.speed + (double) s.phase));
-        g.setColour (juce::Colours::white.withAlpha (a * 0.9f));
-        g.fillEllipse (s.x * w, s.y * h, s.size, s.size);
-    }
+    preRing.setSize (2, preSize);
+    pitchRing.setSize (2, pSize);
+    preRing.clear();
+    pitchRing.clear();
+    preIdx = pIdx = 0;
 
-    // titulo
-    g.setFont (juce::Font (juce::FontOptions (36.0f, juce::Font::bold)));
-    g.setColour (juce::Colour (0xffe9e4ff));
-    g.drawText ("N E B U L A", 30, 14, 320, 44, juce::Justification::centredLeft);
-    g.setFont (juce::Font (juce::FontOptions (11.0f)));
-    g.setColour (juce::Colour (0xff8f9be0));
-    g.drawText ("CONSTELACION RITMICA", 32, 54, 300, 16, juce::Justification::centredLeft);
+    phaseA = 0.0f;
+    delayA = delayB = baseDelay;
+    cyclePhase = 0.0;
+    cs = 1.0f;
+    semisSm = 0.0f;
+    stutterActive = false;
+    loopPhase = 0;
+    ic1eq[0] = ic1eq[1] = ic2eq[0] = ic2eq[1] = 0.0f;
 
-    // titulos de grupos
-    g.setFont (juce::Font (juce::FontOptions (13.0f, juce::Font::bold)));
-    g.setColour (juce::Colour (0xff9fd8ff));
-    g.drawText ("TONO", 40, 336, 240, 18, juce::Justification::centredLeft);
-    g.drawText ("VOLUMEN Y FILTRO", 292, 336, 240, 18, juce::Justification::centredLeft);
-    g.drawText ("STUTTER", 544, 336, 160, 18, juce::Justification::centredLeft);
-    g.drawText ("GLOBAL", 712, 336, 160, 18, juce::Justification::centredLeft);
-
-    g.setFont (juce::Font (juce::FontOptions (10.0f)));
-    g.setColour (juce::Colour (0xff7f8ac8));
-    g.drawText ("ESCALA", 40, 356, 200, 14, juce::Justification::centredLeft);
-    g.drawText ("DIVISION", 544, 356, 150, 14, juce::Justification::centredLeft);
-    g.drawText ("CICLO", 712, 356, 150, 14, juce::Justification::centredLeft);
+    setLatencySamples ((int) baseDelay);
 }
 
-void NebulaEditor::resized()
+bool NebulaProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
 {
-    const int w = getWidth();
+    const auto out = layouts.getMainOutputChannelSet();
+    if (out != juce::AudioChannelSet::mono() && out != juce::AudioChannelSet::stereo())
+        return false;
+    return out == layouts.getMainInputChannelSet();
+}
 
-    sky.setBounds (30, 84, w - 60, 240);
-    presetBox.setBounds (w - 30 - 260, 22, 260, 30);
-    bigBangButton.setBounds (w - 30 - 260 - 130, 22, 120, 30);
+float NebulaProcessor::readInterp (const juce::AudioBuffer<float>& ring, int ch, int writeIdx, int size, float d)
+{
+    float pos = (float) writeIdx - d;
+    while (pos < 0.0f)
+        pos += (float) size;
 
-    scaleBox.setBounds (40, 374, 200, 26);
-    divBox.setBounds (544, 374, 150, 26);
-    cycleBox.setBounds (712, 374, 150, 26);
+    int i0 = (int) pos;
+    const float frac = pos - (float) i0;
+    if (i0 >= size) i0 -= size;
+    int i1 = i0 + 1;
+    if (i1 >= size) i1 -= size;
 
-    static const int kx[10] = { 40, 124, 208, 292, 376, 460, 544, 628, 712, 796 };
-    for (size_t k = 0; k < 10; ++k)
-        knobs[k].slider.setBounds (kx[k], 432, 84, 90);
+    const float* x = ring.getReadPointer (ch);
+    return x[i0] + frac * (x[i1] - x[i0]);
+}
 
-    // fondo (nebulosa) dibujado una sola vez
-    bgImage = juce::Image (juce::Image::ARGB, juce::jmax (1, w), juce::jmax (1, getHeight()), true);
-    juce::Graphics gg (bgImage);
-    const float fw = (float) w;
-    const float fh = (float) getHeight();
+void NebulaProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
+{
+    juce::ScopedNoDenormals noDenormals;
 
-    juce::ColourGradient sky0 (juce::Colour (0xff04031a), 0.0f, 0.0f, juce::Colour (0xff160a3a), 0.0f, fh, false);
-    gg.setGradientFill (sky0);
-    gg.fillAll();
+    const int numCh = juce::jmin (buffer.getNumChannels(), 2);
+    const int n = buffer.getNumSamples();
+    if (numCh == 0 || pSize == 0)
+        return;
 
-    struct Blob { float cx, cy, r; juce::uint32 colour; float alpha; };
-    const Blob blobs[] = {
-        { 0.20f, 0.30f, 0.45f, 0xff6a2fd6, 0.35f },
-        { 0.80f, 0.25f, 0.40f, 0xff1fa7d6, 0.22f },
-        { 0.55f, 0.85f, 0.50f, 0xffd62fa0, 0.22f },
-        { 0.10f, 0.90f, 0.35f, 0xff3047d6, 0.25f }
-    };
-    for (const auto& bl : blobs)
+    auto P = [this] (const char* id) { return apvts.getRawParameterValue (id)->load(); };
+
+    float stars[16];
+    for (int k = 0; k < 16; ++k)
+        stars[k] = starParams[(size_t) k]->load();
+
+    static const float cycleTable[4] = { 1.0f, 2.0f, 4.0f, 8.0f };
+    static const float divTable[4]   = { 1.0f, 0.5f, 0.25f, 0.125f };
+
+    const float cycleBeats = cycleTable[juce::jlimit (0, 3, (int) P ("cycle"))];
+    const float divBeats   = divTable[juce::jlimit (0, 3, (int) P ("sdiv"))];
+    const float smoothAmt  = P ("smooth");
+    const float pdepth     = P ("pdepth");
+    const float pcenter    = P ("pcenter");
+    const int   scale      = (int) P ("scale");
+    const float glideMs    = P ("glide");
+    const float vol        = P ("vol");
+    const float filt       = P ("filt");
+    const float res        = P ("res");
+    const float smix       = P ("smix");
+    const float sthresh    = P ("sthresh");
+    const float mix        = P ("mix");
+
+    // Tempo del host
+    double bpm = 120.0;
+    bool playing = false, havePpq = false;
+    double ppq = 0.0;
+    if (auto* head = getPlayHead())
+        if (auto pos = head->getPosition())
+        {
+            if (auto b = pos->getBpm())
+                bpm = *b;
+            playing = pos->getIsPlaying();
+            if (auto q = pos->getPpqPosition())
+            {
+                ppq = *q;
+                havePpq = true;
+            }
+        }
+    if (bpm < 20.0) bpm = 120.0;
+
+    if (playing && havePpq)
     {
-        const float cx = bl.cx * fw, cy = bl.cy * fh, r = bl.r * fw;
-        juce::ColourGradient gr (juce::Colour (bl.colour).withAlpha (bl.alpha), cx, cy,
-                                 juce::Colour (bl.colour).withAlpha (0.0f), cx + r, cy, true);
-        gg.setGradientFill (gr);
-        gg.fillEllipse (cx - r, cy - r, r * 2.0f, r * 2.0f);
+        double ph = std::fmod (ppq / (double) cycleBeats, 1.0);
+        if (ph < 0.0) ph += 1.0;
+        cyclePhase = ph;
     }
+    const double dPhase = bpm / (60.0 * sr * (double) cycleBeats);
+
+    const float cCoef = 1.0f - std::exp (-1.0f / (0.002f * (float) sr));
+    const float glideCoef = glideMs < 0.5f ? 1.0f : 1.0f - std::exp (-1.0f / (glideMs * 0.001f * (float) sr));
+    const int L = juce::jlimit (64, preSize - 2, (int) ((double) divBeats * 60.0 / bpm * sr));
+    const float phaseStep = 1.0f / windowSamples;
+    const int dryOffset = (int) baseDelay;
+    const float kRes = 1.0f / (0.7f + res * 7.0f);
+    float peak = 0.0f;
+
+    if (filt <= 0.001f)
+        ic1eq[0] = ic1eq[1] = ic2eq[0] = ic2eq[1] = 0.0f;
+
+    for (int i = 0; i < n; ++i)
+    {
+        // Curva de la constelacion en este instante
+        const float c = curveAt ((float) cyclePhase, stars, smoothAmt);
+        cyclePhase += dPhase;
+        if (cyclePhase >= 1.0) cyclePhase -= 1.0;
+        cs += (c - cs) * cCoef;
+
+        // Pitch objetivo
+        float semis = juce::jlimit (-12.0f, 12.0f, pdepth * (c - pcenter));
+        semis = juce::jlimit (-12.0f, 12.0f, quantizeSemis (semis, scale));
+        semisSm += (semis - semisSm) * glideCoef;
+        const float rate = std::exp2 (semisSm / 12.0f);
+
+        // Entrada y grabacion del audio original
+        float in[2] = { 0.0f, 0.0f };
+        for (int ch = 0; ch < numCh; ++ch)
+        {
+            in[ch] = buffer.getReadPointer (ch)[i];
+            preRing.setSample (ch, preIdx, in[ch]);
+        }
+
+        // Stutter: cuando la estrella supera el umbral, se repite el ultimo fragmento
+        const bool gate = smix > 0.001f && c > sthresh;
+        if (gate && ! stutterActive)
+        {
+            stutterActive = true;
+            loopLen = L;
+            loopStart = preIdx - L;
+            if (loopStart < 0) loopStart += preSize;
+            loopPhase = 0;
+        }
+        else if (! gate)
+        {
+            stutterActive = false;
+        }
+
+        float s[2] = { in[0], in[1] };
+        if (stutterActive)
+        {
+            const int fade = juce::jmax (1, juce::jmin (64, loopLen / 4));
+            float g = 1.0f;
+            if (loopPhase < fade)                   g = (float) loopPhase / (float) fade;
+            else if (loopPhase > loopLen - fade)    g = (float) (loopLen - loopPhase) / (float) fade;
+
+            int idx = loopStart + loopPhase;
+            if (idx >= preSize) idx -= preSize;
+
+            for (int ch = 0; ch < numCh; ++ch)
+            {
+                const float ls = preRing.getSample (ch, idx) * g;
+                s[ch] = in[ch] + (ls - in[ch]) * smix;
+            }
+            if (++loopPhase >= loopLen)
+                loopPhase = 0;
+        }
+
+        // Cambio de pitch con dos cabezales de lectura
+        for (int ch = 0; ch < numCh; ++ch)
+            pitchRing.setSample (ch, pIdx, s[ch]);
+
+        const float prevA = phaseA;
+        phaseA += phaseStep;
+        if (phaseA >= 1.0f) phaseA -= 1.0f;
+        if (phaseA < prevA) delayA = baseDelay;
+        float phaseB = phaseA + 0.5f;
+        if (phaseB >= 1.0f) phaseB -= 1.0f;
+        if (prevA < 0.5f && phaseA >= 0.5f) delayB = baseDelay;
+
+        delayA += (1.0f - rate);
+        delayB += (1.0f - rate);
+        delayA = juce::jlimit (1.0f, (float) (pSize - 2), delayA);
+        delayB = juce::jlimit (1.0f, (float) (pSize - 2), delayB);
+
+        const float sA = std::sin (juce::MathConstants<float>::pi * phaseA);
+        const float sB = std::sin (juce::MathConstants<float>::pi * phaseB);
+        const float wA = sA * sA;
+        const float wB = sB * sB;
+
+        // Filtro (coeficientes segun la curva)
+        float a1 = 0.0f, a2 = 0.0f, a3 = 0.0f;
+        if (filt > 0.001f)
+        {
+            float fc = 20000.0f * std::pow (0.01f, filt * (1.0f - cs));
+            fc = juce::jlimit (20.0f, 0.45f * (float) sr, fc);
+            const float g = std::tan (juce::MathConstants<float>::pi * fc / (float) sr);
+            a1 = 1.0f / (1.0f + g * (g + kRes));
+            a2 = g * a1;
+            a3 = g * a2;
+        }
+
+        const float gain = 1.0f - vol * (1.0f - cs);
+
+        int di = preIdx - dryOffset;
+        if (di < 0) di += preSize;
+
+        for (int ch = 0; ch < numCh; ++ch)
+        {
+            float w = wA * readInterp (pitchRing, ch, pIdx, pSize, delayA)
+                    + wB * readInterp (pitchRing, ch, pIdx, pSize, delayB);
+
+            if (filt > 0.001f)
+            {
+                const float v3 = w - ic2eq[ch];
+                const float v1 = a1 * ic1eq[ch] + a2 * v3;
+                const float v2 = ic2eq[ch] + a2 * ic1eq[ch] + a3 * v3;
+                ic1eq[ch] = 2.0f * v1 - ic1eq[ch];
+                ic2eq[ch] = 2.0f * v2 - ic2eq[ch];
+                w = v2;
+            }
+
+            w *= gain;
+
+            const float dry = preRing.getSample (ch, di);
+            const float o = dry * (1.0f - mix) + w * mix;
+            buffer.getWritePointer (ch)[i] = o;
+            peak = juce::jmax (peak, std::abs (o));
+        }
+
+        if (++preIdx >= preSize) preIdx = 0;
+        if (++pIdx >= pSize) pIdx = 0;
+    }
+
+    uiPhase.store ((float) cyclePhase);
+    uiLevel.store (juce::jlimit (0.0f, 1.0f, peak));
+}
+
+juce::AudioProcessorEditor* NebulaProcessor::createEditor()
+{
+    return new NebulaEditor (*this);
+}
+
+void NebulaProcessor::getStateInformation (juce::MemoryBlock& destData)
+{
+    auto state = apvts.copyState();
+    std::unique_ptr<juce::XmlElement> xml (state.createXml());
+    copyXmlToBinary (*xml, destData);
+}
+
+void NebulaProcessor::setStateInformation (const void* data, int sizeInBytes)
+{
+    std::unique_ptr<juce::XmlElement> xml (getXmlFromBinary (data, sizeInBytes));
+    if (xml != nullptr && xml->hasTagName (apvts.state.getType()))
+    {
+        apvts.replaceState (juce::ValueTree::fromXml (*xml));
+        // Evita que al cargar un proyecto el preset pise los valores guardados
+        lastAppliedPreset = (int) apvts.getRawParameterValue ("preset")->load();
+        pendingPreset = lastAppliedPreset;
+    }
+}
+
+juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()
+{
+    return new NebulaProcessor();
 }
